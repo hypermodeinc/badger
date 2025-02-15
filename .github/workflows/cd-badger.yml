@@ -1,32 +1,32 @@
 name: cd-badger
+
 on:
   workflow_dispatch:
     inputs:
       releasetag:
-        description: 'releasetag'
+        description: releasetag
         required: true
         type: string
+
+permissions:
+  contents: read
+
 jobs:
   badger-build-amd64:
     runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '${{ github.event.inputs.releasetag }}'
-      - name: Get Go Version
-        run: |
-          #!/bin/bash
-          GOVERSION=$({ [ -f .go-version ] && cat .go-version; })
-          echo "GOVERSION=$GOVERSION" >> $GITHUB_ENV
+          ref: "${{ github.event.inputs.releasetag }}"
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GOVERSION }}
+          go-version-file: go.mod
       - name: Set Badger Release Version
         run: |
           #!/bin/bash
           GIT_TAG_NAME='${{ github.event.inputs.releasetag }}'
-          if [[ "$GIT_TAG_NAME" == "v"* ]]; 
+          if [[ "$GIT_TAG_NAME" == "v"* ]];
           then
             echo "this is a release tag"
           else
@@ -37,11 +37,12 @@ jobs:
           echo "making a new release for "$BADGER_RELEASE_VERSION
           echo "BADGER_RELEASE_VERSION=$BADGER_RELEASE_VERSION" >> $GITHUB_ENV
       - name: Fetch dependencies
-        run: sudo apt-get -y install build-essential
+        run: sudo apt-get update && sudo apt-get -y install build-essential
       - name: Build badger linux/amd64
         run: make badger
       - name: Generate SHA for Linux Build
-        run: cd badger && sha256sum badger-linux-amd64 | cut -c-64 > badger-checksum-linux-amd64.sha256
+        run:
+          cd badger && sha256sum badger-linux-amd64 | cut -c-64 > badger-checksum-linux-amd64.sha256
       - name: Tar Archive for Linux Build
         run: cd badger && tar -zcvf badger-linux-amd64.tar.gz badger-linux-amd64
       - name: Upload Badger Binary Build Artifacts
@@ -51,26 +52,22 @@ jobs:
           path: |
             badger/badger-checksum-linux-amd64.sha256
             badger/badger-linux-amd64.tar.gz
+
   badger-build-arm64:
     runs-on: warp-ubuntu-latest-arm64-4x
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '${{ github.event.inputs.releasetag }}'
-      - name: Get Go Version
-        run: |
-          #!/bin/bash
-          GOVERSION=$({ [ -f .go-version ] && cat .go-version; })
-          echo "GOVERSION=$GOVERSION" >> $GITHUB_ENV
+          ref: "${{ github.event.inputs.releasetag }}"
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GOVERSION }}
+          go-version-file: go.mod
       - name: Set Badger Release Version
         run: |
           #!/bin/bash
           GIT_TAG_NAME='${{ github.event.inputs.releasetag }}'
-          if [[ "$GIT_TAG_NAME" == "v"* ]]; 
+          if [[ "$GIT_TAG_NAME" == "v"* ]];
           then
             echo "this is a release tag"
           else
@@ -85,7 +82,8 @@ jobs:
       - name: Build badger linux/arm64
         run: make badger
       - name: Generate SHA for Linux Build
-        run: cd badger && sha256sum badger-linux-arm64 | cut -c-64 > badger-checksum-linux-arm64.sha256
+        run:
+          cd badger && sha256sum badger-linux-arm64 | cut -c-64 > badger-checksum-linux-arm64.sha256
       - name: Tar Archive for Linux Build
         run: cd badger && tar -zcvf badger-linux-arm64.tar.gz badger-linux-arm64
       - name: List Artifacts
