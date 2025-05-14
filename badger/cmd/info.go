@@ -8,6 +8,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/badger/v4/options"
+	"github.com/dgraph-io/badger/v4/pb"
 	"github.com/dgraph-io/badger/v4/table"
 	"github.com/dgraph-io/badger/v4/y"
 )
@@ -40,10 +42,14 @@ type flagOptions struct {
 	checksumVerificationMode string
 	discard                  bool
 	externalMagicVersion     uint16
+	checksumAlgorithm        string
 }
 
 var (
 	opt flagOptions
+
+	// errInvalidChecksumAlgorithm is returned if the checksum algorithm is invalid.
+	errInvalidChecksumAlgorithm = errors.New("Invalid checksum algorithm. Supported values: crc32c, xxhash64.")
 )
 
 func init() {
@@ -69,6 +75,8 @@ func init() {
 	infoCmd.Flags().StringVar(&opt.encryptionKey, "enc-key", "", "Use the provided encryption key")
 	infoCmd.Flags().StringVar(&opt.checksumVerificationMode, "cv-mode", "none",
 		"[none, table, block, tableAndBlock] Specifies when the db should verify checksum for SST.")
+	infoCmd.Flags().StringVar(&opt.checksumAlgorithm, "ct", "crc32c", "[crc32c,xxhash64] "+
+		"Specifies the checksum algorithm for SST.")
 	infoCmd.Flags().BoolVar(&opt.discard, "discard", false,
 		"Parse and print DISCARD file from value logs.")
 	infoCmd.Flags().Uint16Var(&opt.externalMagicVersion, "external-magic", 0,
@@ -89,6 +97,9 @@ to the Dgraph team.
 
 func handleInfo(cmd *cobra.Command, args []string) error {
 	cvMode := checksumVerificationMode(opt.checksumVerificationMode)
+	ct, err := strToChecksumAlgorithm(opt.checksumAlgorithm)
+	y.Check(err)
+
 	bopt := badger.DefaultOptions(sstDir).
 		WithValueDir(vlogDir).
 		WithReadOnly(opt.readOnly).
@@ -96,7 +107,8 @@ func handleInfo(cmd *cobra.Command, args []string) error {
 		WithIndexCacheSize(200 << 20).
 		WithEncryptionKey([]byte(opt.encryptionKey)).
 		WithChecksumVerificationMode(cvMode).
-		WithExternalMagic(opt.externalMagicVersion)
+		WithExternalMagic(opt.externalMagicVersion).
+		WithChecksumAlgorithm(ct)
 
 	if opt.discard {
 		ds, err := badger.InitDiscardStats(bopt)
@@ -513,6 +525,19 @@ func pluralFiles(count int) string {
 		return "file"
 	}
 	return "files"
+}
+
+// When the checkSum Algorithm is invalid, func strToChecksumAlgorithm will return the default checkSum Algorithm
+func strToChecksumAlgorithm(ct string) (pb.Checksum_Algorithm, error) {
+	switch ct {
+	case "crc32c":
+		return pb.Checksum_CRC32C, nil
+	case "xxhash64":
+		return pb.Checksum_XXHash64, nil
+	default:
+		return pb.Checksum_CRC32C, y.Wrap(errInvalidChecksumAlgorithm,
+			"InvalidChecksumAlgorithm")
+	}
 }
 
 func checksumVerificationMode(cvMode string) options.ChecksumVerificationMode {
