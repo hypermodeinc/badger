@@ -147,6 +147,12 @@ func checkAndSetOptions(opt *Options) error {
 	if opt.NumCompactors == 1 {
 		return errors.New("Cannot have 1 compactor. Need at least 2")
 	}
+	if opt.CompactorCheckInterval < 0 {
+		return errors.New("CompactorCheckInterval cannot be negative")
+	}
+	if opt.CompactorInitialDelay < 0 {
+		return errors.New("CompactorInitialDelay cannot be negative")
+	}
 
 	if opt.InMemory && (opt.Dir != "" || opt.ValueDir != "") {
 		return errors.New("Cannot use badger in Disk-less mode with Dir or ValueDir set")

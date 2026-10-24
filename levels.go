@@ -478,14 +478,46 @@ func (s *levelsController) levelTargets() targets {
 	return t
 }
 
+const (
+	defaultCompactorCheckInterval = 50 * time.Millisecond
+	compactorLmaxInterval         = 10 * time.Second
+)
+
+func (opt Options) compactorCheckInterval() time.Duration {
+	if opt.CompactorCheckInterval > 0 {
+		return opt.CompactorCheckInterval
+	}
+	return defaultCompactorCheckInterval
+}
+
+func (opt Options) compactorInitialDelay() time.Duration {
+	if opt.CompactorInitialDelay > 0 {
+		return opt.CompactorInitialDelay
+	}
+	// Preserve the historical startup behavior: stagger each compactor by a
+	// random delay in [0, 1s).
+	return time.Duration(rand.Int31n(1000)) * time.Millisecond
+}
+
+func compactorLmaxTicks(checkInterval time.Duration) int {
+	if checkInterval <= 0 {
+		checkInterval = defaultCompactorCheckInterval
+	}
+	ticks := int((compactorLmaxInterval + checkInterval - 1) / checkInterval)
+	if ticks < 1 {
+		return 1
+	}
+	return ticks
+}
+
 func (s *levelsController) runCompactor(id int, lc *z.Closer) {
 	defer lc.Done()
 
-	randomDelay := time.NewTimer(time.Duration(rand.Int31n(1000)) * time.Millisecond)
+	initialDelay := time.NewTimer(s.kv.opt.compactorInitialDelay())
 	select {
-	case <-randomDelay.C:
+	case <-initialDelay.C:
 	case <-lc.HasBeenClosed():
-		randomDelay.Stop()
+		initialDelay.Stop()
 		return
 	}
 
@@ -554,15 +586,18 @@ func (s *levelsController) runCompactor(id int, lc *z.Closer) {
 
 	}
 	count := 0
-	ticker := time.NewTicker(50 * time.Millisecond)
+	checkInterval := s.kv.opt.compactorCheckInterval()
+	lmaxTicks := compactorLmaxTicks(checkInterval)
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		// Can add a done channel or other stuff.
 		case <-ticker.C:
 			count++
-			// Each ticker is 50ms so 50*200=10seconds.
-			if s.kv.opt.LmaxCompaction && id == 2 && count >= 200 {
+			// Attempt Lmax-to-Lmax compaction approximately every 10 seconds,
+			// regardless of the configured compactor check interval.
+			if s.kv.opt.LmaxCompaction && id == 2 && count >= lmaxTicks {
 				tryLmaxToLmaxCompaction()
 				count = 0
 			} else {
