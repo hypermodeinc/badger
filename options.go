@@ -78,6 +78,9 @@ type Options struct {
 	LmaxCompaction       bool
 	ZSTDCompressionLevel int
 
+	CompactorCheckInterval time.Duration
+	CompactorInitialDelay  time.Duration
+
 	// When set, checksum will be validated for each entry read from the value log file.
 	VerifyValueChecksum bool
 
@@ -134,7 +137,11 @@ func DefaultOptions(path string) Options {
 		NumGoroutines:       8,
 		MetricsEnabled:      true,
 
-		NumCompactors:           4, // Run at least 2 compactors. Zero-th compactor prioritizes L0.
+		NumCompactors:          4, // Run at least 2 compactors. Zero-th compactor prioritizes L0.
+		CompactorCheckInterval: defaultCompactorCheckInterval,
+		// CompactorInitialDelay is intentionally zero: zero preserves the
+		// legacy behavior of staggering each compactor by a random delay
+		// of less than one second.
 		NumLevelZeroTables:      5,
 		NumLevelZeroTablesStall: 15,
 		NumMemtables:            5,
@@ -615,6 +622,30 @@ func (opt Options) WithNumCompactors(val int) Options {
 // The default value of CompactL0OnClose is false.
 func (opt Options) WithCompactL0OnClose(val bool) Options {
 	opt.CompactL0OnClose = val
+	return opt
+}
+
+// WithCompactorCheckInterval sets how often each compactor wakes up to look
+// for compaction work. Longer intervals reduce idle CPU usage but can delay
+// compaction after new tables are added.
+//
+// The default value of CompactorCheckInterval is 50 milliseconds. A zero
+// value also selects the default. Negative values are rejected by Open.
+func (opt Options) WithCompactorCheckInterval(val time.Duration) Options {
+	opt.CompactorCheckInterval = val
+	return opt
+}
+
+// WithCompactorInitialDelay sets how long each compactor waits before it
+// first checks for compaction work.
+//
+// The default value of CompactorInitialDelay is zero. Zero does not mean
+// that every compactor starts immediately: it preserves Badger's existing
+// behavior of staggering each compactor by a random delay of less than one
+// second. A positive value uses that exact delay for every compactor.
+// Negative values are rejected by Open.
+func (opt Options) WithCompactorInitialDelay(val time.Duration) Options {
+	opt.CompactorInitialDelay = val
 	return opt
 }
 

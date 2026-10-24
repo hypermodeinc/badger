@@ -8,6 +8,7 @@ package badger
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/dgraph-io/badger/v4/options"
 )
@@ -45,6 +46,69 @@ func TestOptions(t *testing.T) {
 			t.Fatal("generated superFlag != expected options")
 		}
 	})
+}
+
+func TestCompactorSchedulingOptions(t *testing.T) {
+	def := DefaultOptions("")
+	if def.CompactorCheckInterval != 50*time.Millisecond {
+		t.Fatalf("default CompactorCheckInterval = %v, want 50ms", def.CompactorCheckInterval)
+	}
+	if def.CompactorInitialDelay != 0 {
+		t.Fatalf("default CompactorInitialDelay = %v, want 0 (legacy random stagger)",
+			def.CompactorInitialDelay)
+	}
+
+	configured := def.
+		WithCompactorCheckInterval(2 * time.Second).
+		WithCompactorInitialDelay(3 * time.Second)
+	if configured.CompactorCheckInterval != 2*time.Second {
+		t.Fatalf("configured CompactorCheckInterval = %v, want 2s",
+			configured.CompactorCheckInterval)
+	}
+	if configured.CompactorInitialDelay != 3*time.Second {
+		t.Fatalf("configured CompactorInitialDelay = %v, want 3s",
+			configured.CompactorInitialDelay)
+	}
+	if got := configured.compactorCheckInterval(); got != 2*time.Second {
+		t.Fatalf("compactorCheckInterval() = %v, want 2s", got)
+	}
+	if got := configured.compactorInitialDelay(); got != 3*time.Second {
+		t.Fatalf("compactorInitialDelay() = %v, want 3s", got)
+	}
+
+	if got := (Options{}).compactorCheckInterval(); got != 50*time.Millisecond {
+		t.Fatalf("zero compactorCheckInterval() = %v, want the 50ms default", got)
+	}
+	for i := 0; i < 100; i++ {
+		if got := def.compactorInitialDelay(); got < 0 || got >= time.Second {
+			t.Fatalf("default compactorInitialDelay() = %v, want a value in [0, 1s)", got)
+		}
+	}
+
+	for _, tc := range []struct {
+		interval time.Duration
+		want     int
+	}{
+		{interval: 50 * time.Millisecond, want: 200},
+		{interval: 2 * time.Second, want: 5},
+		{interval: 30 * time.Second, want: 1},
+	} {
+		if got := compactorLmaxTicks(tc.interval); got != tc.want {
+			t.Fatalf("compactorLmaxTicks(%v) = %d, want %d", tc.interval, got, tc.want)
+		}
+	}
+
+	invalidInterval := DefaultOptions("")
+	invalidInterval.CompactorCheckInterval = -time.Millisecond
+	if err := checkAndSetOptions(&invalidInterval); err == nil {
+		t.Fatal("checkAndSetOptions accepted a negative CompactorCheckInterval")
+	}
+
+	invalidDelay := DefaultOptions("")
+	invalidDelay.CompactorInitialDelay = -time.Millisecond
+	if err := checkAndSetOptions(&invalidDelay); err == nil {
+		t.Fatal("checkAndSetOptions accepted a negative CompactorInitialDelay")
+	}
 }
 
 // optionsEqual just compares the values of two Options structs
